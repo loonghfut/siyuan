@@ -17,6 +17,8 @@ jobs:
   create_release:
     name: Create Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
       release_version: ${{ steps.release_info.outputs.release_version }}
@@ -89,6 +91,8 @@ jobs:
     runs-on: ${{ matrix.config.os }}
     name: ${{ matrix.config.name }}
     needs: create_release
+    permissions:
+      contents: write
     strategy:
       matrix:
         config:
