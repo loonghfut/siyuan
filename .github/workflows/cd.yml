@@ -8,6 +8,9 @@ on:
       - '*-rc*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 env:
   package_json: "app/package.json"
 
