@@ -17,9 +17,16 @@ import {updateServerAddresses} from "../../config/tabs/accessRuntime";
 import {reloadInlineStyles} from "../../util/assets";
 import {renderMobileBottomBar} from "./mobileBottomBar";
 import {Constants} from "../../constants";
+import {MOBILE_SIDE_PANEL_CONFIG_CHANGE_EVENT} from "./mobileSidePanelConfig";
+import {appearanceConfigApi} from "../../config/tabs/appearanceRuntime";
+import {applyCloudUserState} from "../../config/tabs/accountUi";
 
 let statusTimeout: number;
 const statusElement = document.querySelector("#status") as HTMLElement;
+
+const dispatchMobileSidePanelConfigChange = () => {
+    window.dispatchEvent(new CustomEvent(MOBILE_SIDE_PANEL_CONFIG_CHANGE_EVENT));
+};
 
 export const onMessage = (app: App, data: IWebSocketData) => {
     if (data) {
@@ -37,11 +44,11 @@ export const onMessage = (app: App, data: IWebSocketData) => {
                 } else {
                     clearTimeout(statusTimeout);
                     statusElement.innerHTML = `<div class="fn__flex">${data.data.tasks[0].action}<div class="fn__progress"><div></div></div>`;
-                    statusElement.style.bottom = "var(--mobile-bottom-bar-offset)";
+                    statusElement.style.bottom = "0";
                 }
                 break;
             case "setAppearance":
-                window.location.reload();
+                appearanceConfigApi.apply(data.data);
                 break;
             case "reloadInlineStyles":
                 void reloadInlineStyles();
@@ -70,6 +77,9 @@ export const onMessage = (app: App, data: IWebSocketData) => {
                 break;
             case "setConf":
                 window.siyuan.config = data.data;
+                break;
+            case "setCloudUser":
+                applyCloudUserState(data.data.user, data.data.userName);
                 break;
             case "setServerAddrs":
                 updateServerAddresses(data.data);
@@ -104,6 +114,9 @@ export const onMessage = (app: App, data: IWebSocketData) => {
                 if (data.data.key === Constants.LOCAL_MOBILE_BOTTOM_BAR) {
                     renderMobileBottomBar();
                 }
+                if (data.data.key === Constants.LOCAL_MOBILE_SIDE_PANEL) {
+                    dispatchMobileSidePanelConfigChange();
+                }
                 break;
             case "setLocalStorageVals":
                 Object.keys(data.data.keyVals).forEach((k) => {
@@ -112,11 +125,17 @@ export const onMessage = (app: App, data: IWebSocketData) => {
                 if (Object.prototype.hasOwnProperty.call(data.data.keyVals, Constants.LOCAL_MOBILE_BOTTOM_BAR)) {
                     renderMobileBottomBar();
                 }
+                if (Object.prototype.hasOwnProperty.call(data.data.keyVals, Constants.LOCAL_MOBILE_SIDE_PANEL)) {
+                    dispatchMobileSidePanelConfigChange();
+                }
                 break;
             case "removeLocalStorageVal":
                 delete window.siyuan.storage[data.data.key];
                 if (data.data.key === Constants.LOCAL_MOBILE_BOTTOM_BAR) {
                     renderMobileBottomBar();
+                }
+                if (data.data.key === Constants.LOCAL_MOBILE_SIDE_PANEL) {
+                    dispatchMobileSidePanelConfigChange();
                 }
                 break;
             case "removeLocalStorageVals":
@@ -125,6 +144,9 @@ export const onMessage = (app: App, data: IWebSocketData) => {
                 });
                 if (data.data.keys.includes(Constants.LOCAL_MOBILE_BOTTOM_BAR)) {
                     renderMobileBottomBar();
+                }
+                if (data.data.keys.includes(Constants.LOCAL_MOBILE_SIDE_PANEL)) {
+                    dispatchMobileSidePanelConfigChange();
                 }
                 break;
             case"progress":
@@ -158,7 +180,7 @@ export const onMessage = (app: App, data: IWebSocketData) => {
                 }
                 clearTimeout(statusTimeout);
                 statusElement.innerHTML = data.msg;
-                statusElement.style.bottom = "var(--mobile-bottom-bar-offset)";
+                statusElement.style.bottom = "var(--mobile-bottom-bar-safe-area)";
                 statusTimeout = window.setTimeout(() => {
                     statusElement.style.bottom = "";
                 }, 12000);

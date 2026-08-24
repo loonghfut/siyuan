@@ -4,7 +4,7 @@ import {
     reduceMobileBarsState,
 } from "./mobileBarsState";
 
-const PANEL_IDS = ["sidebar", "menu", "model"];
+const PANEL_IDS = ["sidebar", "sidebarRight", "menu", "model"];
 const MOBILE_BARS_TRANSITION_FALLBACK = 320;
 
 let barsState = createMobileBarsState();
@@ -17,6 +17,7 @@ let programmaticScrollTimeout = 0;
 let barsTransitionTimeout = 0;
 let barsTransitionFrame = 0;
 let barsTransitionEndHandler: ((event: TransitionEvent) => void) | undefined;
+let barsTransitionElement: HTMLElement | undefined;
 let initialized = false;
 
 const hasTextSelection = () => {
@@ -36,18 +37,23 @@ export const isMobileBlockSelecting = () => {
 
 const isPanelOpen = () => PANEL_IDS.some((id) => {
     const element = document.getElementById(id);
+    if (id === "menu") {
+        return Boolean(element && !element.classList.contains("fn__none"));
+    }
     return Boolean(element?.style.transform);
 });
 
 const clearBarsTransitionWatch = () => {
     clearTimeout(barsTransitionTimeout);
     cancelAnimationFrame(barsTransitionFrame);
+    document.body.classList.remove("mobile-chrome--transitioning");
     barsTransitionTimeout = 0;
     barsTransitionFrame = 0;
-    if (barsTransitionEndHandler) {
-        document.getElementById("mobileTopBar")?.removeEventListener("transitionend", barsTransitionEndHandler);
-        barsTransitionEndHandler = undefined;
+    if (barsTransitionEndHandler && barsTransitionElement) {
+        barsTransitionElement.removeEventListener("transitionend", barsTransitionEndHandler);
     }
+    barsTransitionEndHandler = undefined;
+    barsTransitionElement = undefined;
 };
 
 const finishBarsTransition = () => {
@@ -64,24 +70,26 @@ const finishBarsTransition = () => {
 
 const startBarsTransition = () => {
     clearBarsTransitionWatch();
+    document.body.classList.add("mobile-chrome--transitioning");
     barsState = reduceMobileBarsState(barsState, {
         type: "set-bars-transitioning",
         active: true,
         scrollTop: scrollElement?.scrollTop,
     });
-    const topbarElement = document.getElementById("mobileTopBar");
-    if (!topbarElement || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    barsTransitionElement = document.body.classList.contains("mobile-topbar--merged") ?
+        document.getElementById("mobileBottomBar") : document.getElementById("mobileTopBar");
+    if (!barsTransitionElement || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         barsTransitionFrame = requestAnimationFrame(() => {
             barsTransitionFrame = requestAnimationFrame(finishBarsTransition);
         });
         return;
     }
     barsTransitionEndHandler = (event: TransitionEvent) => {
-        if (event.target === topbarElement && event.propertyName === "margin-bottom") {
+        if (event.target === barsTransitionElement && event.propertyName === "transform") {
             finishBarsTransition();
         }
     };
-    topbarElement.addEventListener("transitionend", barsTransitionEndHandler);
+    barsTransitionElement.addEventListener("transitionend", barsTransitionEndHandler);
     barsTransitionTimeout = window.setTimeout(finishBarsTransition, MOBILE_BARS_TRANSITION_FALLBACK);
 };
 
@@ -257,7 +265,7 @@ export const initMobileBars = () => {
     panelObserver = new MutationObserver(updatePanelState);
     panelElements.forEach((element) => panelObserver.observe(element, {
         attributes: true,
-        attributeFilter: ["style"],
+        attributeFilter: ["class", "style"],
     }));
     barsState = createMobileBarsState(scrollElement?.scrollTop);
     renderMobileBars();

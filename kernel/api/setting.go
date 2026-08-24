@@ -986,8 +986,19 @@ func getCloudUser(c *gin.Context) {
 	if nil != t {
 		token = t.(string)
 	}
-	model.RefreshUser(token)
-	ret.Data = model.Conf.GetUser()
+	user, err := model.RefreshUser(token)
+	ret.Data = user
+	if nil == err {
+		return
+	}
+	if model.IsInvalidUserRefresh(err) {
+		ret.Code = 255
+		ret.Msg = model.Conf.Language(19)
+		ret.Data = nil
+		return
+	}
+	ret.Code = 1
+	ret.Msg = model.Conf.Language(18)
 }
 
 func logoutCloudUser(c *gin.Context) {
@@ -1008,13 +1019,10 @@ func login2faCloudUser(c *gin.Context) {
 
 	token := arg["token"].(string)
 	code := arg["code"].(string)
-	data, err := model.Login2fa(token, code)
-	if err != nil {
-		ret.Code = -1
-		ret.Msg = err.Error()
-		return
-	}
-	ret.Data = data
+	loginResult := model.Login2fa(token, code)
+	ret.Code = loginResult.Code
+	ret.Msg = loginResult.Msg
+	ret.Data = loginResult.Data
 }
 
 func setEmoji(c *gin.Context) {

@@ -18,9 +18,11 @@ import {
     getEntryParentPath,
     getEntryOrderParents,
     getEntryPaths,
+    getPluginDockEntryKey,
     getPluginSlashEntryKey,
     getSlashMenuEntryPath,
     isEntryOrderSortable,
+    refreshDockCatalog,
     refreshSlashMenuCatalog,
     refreshToolbarCatalog,
     SLASH_MENU_ROOT_PATH,
@@ -147,6 +149,47 @@ test("toolbar catalog follows plugin insertion slots and removes unloaded plugin
         refreshToolbarCatalog(defaults);
     }
     assert.equal(getEntryCatalogNode(`${TOOLBAR_ENTRY_ROOT_PATH}.${pluginKey}`), undefined);
+});
+
+test("dock catalog refreshes unique plugin docks and removes unloaded entries", () => {
+    const firstKey = getPluginDockEntryKey("plugin.one", "shared.id");
+    const secondKey = getPluginDockEntryKey("plugin.two", "shared.id");
+    try {
+        refreshDockCatalog([{
+            name: "plugin.one",
+            displayName: "Plugin One",
+            docks: {
+                first: {id: "shared.id", config: {title: "First Dock"}},
+                duplicate: {id: "shared.id", config: {title: "Duplicate Dock"}},
+            },
+        }, {
+            name: "plugin.two",
+            displayName: "Plugin Two",
+            docks: {
+                second: {id: "shared.id", config: {title: "Second Dock"}},
+            },
+        }]);
+
+        const children = getEntryCatalogChildren("dock");
+        assert.deepEqual(children.slice(-2).map((item) => item.key), [firstKey, secondKey]);
+        assert.equal(children.filter((item) => item.key === firstKey).length, 1);
+        assert.equal(getEntryCatalogNode(`dock.${firstKey}`)?.label(), "Plugin One - First Dock");
+        assert.equal(getEntryCatalogNode(`dock.${secondKey}`)?.label(), "Plugin Two - Second Dock");
+        assert.equal(getEntryParentPath(`dock.${firstKey}`), "dock");
+    } finally {
+        refreshDockCatalog([]);
+    }
+    assert.equal(getEntryCatalogNode(`dock.${firstKey}`), undefined);
+});
+
+test("plugin dock keys encode dotted names and IDs without ambiguity", () => {
+    const dottedPlugin = getPluginDockEntryKey("plugin.name", "entry");
+    const dottedEntry = getPluginDockEntryKey("plugin", "name.entry");
+    assert.equal(dottedPlugin, "plugin:plugin%2Ename:entry");
+    assert.equal(dottedEntry, "plugin:plugin:name%2Eentry");
+    assert.notEqual(dottedPlugin, dottedEntry);
+    assert.equal(dottedPlugin.includes("."), false);
+    assert.equal(dottedEntry.includes("."), false);
 });
 
 test("slash menu catalog follows the built-in hint order", () => {
@@ -304,6 +347,23 @@ test("entry order sortability follows its section and parent entry", () => {
     assert.equal(getEntryOrderParents().includes("editor.slash"), false);
     assert.equal(getEntryOrderParents().includes(SLASH_MENU_ROOT_PATH), true);
     assert.equal(getEntryOrderParents().includes(TOOLBAR_ENTRY_ROOT_PATH), true);
+});
+
+test("callout presets stay aligned across block menu scopes", () => {
+    const presetKeys = [
+        "calloutNote",
+        "calloutTip",
+        "calloutImportant",
+        "calloutWarning",
+        "calloutCaution",
+        "calloutCustom",
+    ];
+    ["gutter.single.turnInto", "gutter.multi.turnInto"].forEach((path) => {
+        const keys = getEntryCatalogChildren(path).map(item => item.key);
+        const calloutIndex = keys.indexOf("callout");
+        assert.notEqual(calloutIndex, -1);
+        assert.deepEqual(keys.slice(calloutIndex + 1, calloutIndex + 1 + presetKeys.length), presetKeys);
+    });
 });
 
 test("conditional block resource menus have distinct configuration labels", () => {
@@ -689,12 +749,24 @@ test("HTML file insertion follows general asset insertion", () => {
     assert.equal(children[insertAssetIndex + 1]?.key, "insertHTMLFile");
 });
 
+test("copy as PNG is available for documents and single blocks", () => {
+    const documentCopy = getEntryCatalogChildren("document.title.copy").map((item) => item.key);
+    const blockCopy = getEntryCatalogChildren("gutter.single.copy").map((item) => item.key);
+    assert.ok(getEntryCatalogNode("document.title.copy.copyAsPNG"));
+    assert.ok(getEntryCatalogNode("gutter.single.copy.copyAsPNG"));
+    assert.equal(getEntryCatalogNode("gutter.multi.copy.copyAsPNG"), undefined);
+    assert.equal(documentCopy[documentCopy.indexOf("copyMarkdown") + 1], "copyAsPNG");
+    assert.equal(blockCopy[blockCopy.indexOf("copyPlainText") + 1], "copyAsPNG");
+});
+
 test("simple profile follows the reviewed defaults", () => {
     const shown = [
         "document.title.copy.copyBlockEmbed",
+        "document.title.copy.copyAsPNG",
         "document.title.export.exportTemplate",
         "document.title.export.exportImage",
         "gutter.single.addToAgent",
+        "gutter.single.copy.copyAsPNG",
         "gutter.single.turnInto.code",
         "gutter.single.layout.alignTop",
         "gutter.single.layout.alignMiddle",

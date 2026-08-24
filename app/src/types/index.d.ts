@@ -28,6 +28,7 @@ type TOperation =
     | "sortAttrViewRow"
     | "sortAttrViewCol"
     | "sortAttrViewKey"
+    | "sortAttrViewBinding"
     | "setAttrViewColPin"
     | "setAttrViewColHidden"
     | "setAttrViewColWrap"
@@ -37,6 +38,7 @@ type TOperation =
     | "updateAttrViewColOptions"
     | "removeAttrViewColOption"
     | "updateAttrViewColOption"
+    | "setAttrViewCustomColors"
     | "setAttrViewName"
     | "setAttrViewNewItemTemplates"
     | "doUpdateUpdated"
@@ -103,7 +105,7 @@ type TEventBus = "ws-main" | "sync-start" | "sync-end" | "sync-fail" |
     "open-menu-av" | "open-menu-content" | "open-menu-breadcrumbmore" | "open-menu-doctree" | "open-menu-inbox" |
     "open-siyuan-url-plugin" | "open-siyuan-url-block" | "open-asset" | "open-link" | "opened-notebook" |
     "closed-notebook" |
-    "paste" | "before-upload-assets" |
+    "paste" | "before-upload-assets" | "before-search-results-render" |
     "input-search" |
     "loaded-protyle-dynamic" | "loaded-protyle-static" |
     "switch-protyle" | "switch-protyle-mode" |
@@ -1203,6 +1205,20 @@ interface IBazaarPackageDetail {
     available?: IBazaarItem;
 }
 
+interface IAVColorTheme {
+    color: string;
+    backgroundColor: string;
+}
+
+interface IAVColor {
+    light: IAVColorTheme;
+    dark: IAVColorTheme;
+}
+
+interface IAVCustomColor extends IAVColor {
+    index: number;
+}
+
 interface IAV {
     id: string;
     name: string;
@@ -1213,6 +1229,8 @@ interface IAV {
     isMirror?: boolean;
     newItemTemplates?: IAVNewItemTemplate[];
     defaultTemplateID?: string;
+    customColors?: IAVCustomColor[];
+    usedCustomColorIndexes?: number[];
     target?: IAVRenderTarget;
 }
 
@@ -1393,6 +1411,7 @@ interface IAVColumn {
     options?: {
         name: string,
         color: string,
+        resolvedColor?: IAVColor,
         desc?: string,
     }[],
     relation?: IAVColumnRelation,
@@ -1491,7 +1510,8 @@ interface IAVCellDateValue {
 
 interface IAVCellSelectValue {
     content: string,
-    color: string
+    color: string,
+    resolvedColor?: IAVColor
 }
 
 interface IAVCellAssetValue {
