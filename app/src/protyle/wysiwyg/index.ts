@@ -197,6 +197,7 @@ import {formatPainter} from "../toolbar/FormatPainter";
 import {shouldOpenListItemAttr} from "./listContext";
 import {getBlockEdgeCaretRange, isCaretRangeInsideElement} from "./blockEdgeCaret";
 import {LargeListVirtualizer} from "./listVirtualization";
+import {forEachPluginSubscriber} from "../../plugin/EventBusCore";
 
 interface IShiftClickBlockPoint {
     blockElement: HTMLElement;
@@ -4280,8 +4281,8 @@ export class WYSIWYG {
                 this.preventClick = false;
                 return;
             }
-            protyle.app.plugins.forEach(item => {
-                item.eventBus.emit("click-editorcontent", {
+            forEachPluginSubscriber("click-editorcontent", eventBus => {
+                eventBus.emit("click-editorcontent", {
                     protyle,
                     event
                 });

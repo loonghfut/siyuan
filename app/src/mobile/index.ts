@@ -42,6 +42,7 @@ import {initRightMenu} from "./menu";
 import {openChangelog} from "../boot/openChangelog";
 import {registerServiceWorker} from "../util/serviceWorker";
 import {loadPlugins} from "../plugin/loader";
+import {emitToPlugins} from "../plugin/EventBusCore";
 import {removeBlock} from "../protyle/wysiwyg/remove";
 import {isNotEditBlock} from "../protyle/wysiwyg/getBlock";
 import {updateCardHV} from "../card/util";
@@ -75,9 +76,7 @@ class App {
             id: genUUID(),
             type: "main",
             msgCallback: (data) => {
-                this.plugins.forEach((plugin) => {
-                    plugin.eventBus.emit("ws-main", data);
-                });
+                emitToPlugins("ws-main", data);
                 onMessage(this, data);
             }
         });
@@ -282,7 +281,7 @@ window.reconnectWebSocket = () => {
 };
 window.lockscreenByMode = () => {
     if (window.siyuan.config?.system.lockScreenMode === 1) {
-        lockScreen(siyuanApp);
+        lockScreen();
     }
 };
 window.goBack = goBack;

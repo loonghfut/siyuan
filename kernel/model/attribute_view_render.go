@@ -534,10 +534,17 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, carrierView
 	}
 
 	// 渲染视图
-	viewable = sql.RenderView(attrView, view, query, ignoreRows)
+	renderContext := sql.NewAttributeViewRenderContext()
+	defer renderContext.PushTemplateErrors()
+	deferTemplateValues := shouldDeferAttributeViewTemplateValues(attrView, view, query, ignoreRows)
+	if deferTemplateValues {
+		viewable = sql.RenderViewWithDeferredTemplatesContext(attrView, view, query, ignoreRows, renderContext)
+	} else {
+		viewable = sql.RenderViewWithContext(attrView, view, query, ignoreRows, renderContext)
+	}
 	var groupRenderSource *sql.GroupViewRenderSource
 	if !ignoreRows && view.IsGroupView() {
-		// 在父视图分页前保存完整行索引，分组表格复用已经生成的字段值。
+		// 在父视图分页前保存完整条目索引，各分组复用已经生成的字段值。
 		groupRenderSource = sql.NewGroupViewRenderSource(viewable, query)
 	}
 	renderTargetItemID := targetItemID(target)
@@ -545,9 +552,13 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, carrierView
 		renderTargetItemID = ""
 	}
 	var targetIndex, targetOffset int
-	targetIndex, targetOffset, err = renderViewableInstance(viewable, view, attrView, page, pageSize, ignoreRows, renderTargetItemID)
+	targetIndex, targetOffset, err = renderViewableInstance(viewable, view, attrView, page, pageSize, ignoreRows,
+		renderTargetItemID, renderContext)
 	if nil != err {
 		return
+	}
+	if deferTemplateValues {
+		sql.FillAttributeViewTemplateValuesWithContext(attrView, view, viewable.(av.Collection), renderContext)
 	}
 	if nil != target && targetIndex >= 0 && !view.IsGroupView() && view.LayoutType != av.LayoutTypeKanban {
 		setAttributeViewRenderTarget(target, "", targetIndex, targetOffset, view.PageSize)
@@ -556,7 +567,7 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, carrierView
 	// 渲染分组视图。当 ignoreRows 时若有已生成的分组则渲染元数据供面板使用，无分组则跳过（生成分组需要行数据）
 	if !ignoreRows || len(view.Groups) > 0 {
 		err = renderAttributeViewGroups(viewable, attrView, view, query, page, pageSize, groupPaging, groupRenderSource,
-			ignoreRows, writable, target, targetGroupID)
+			ignoreRows, writable, target, targetGroupID, renderContext)
 	}
 	if writable && nil == err && attrView.HasCardCoverPositionChanges() {
 		if err = av.SaveAttributeView(attrView); nil != err {
@@ -569,7 +580,7 @@ func renderAttributeView(attrView *av.AttributeView, nodeID, viewID, carrierView
 
 func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView, view *av.View, query string, page,
 	pageSize int, groupPaging map[string]any, groupRenderSource *sql.GroupViewRenderSource, ignoreRows, writable bool,
-	target *AttributeViewRenderTarget, targetGroupID string) (err error) {
+	target *AttributeViewRenderTarget, targetGroupID string, renderContext *sql.AttributeViewRenderContext) (err error) {
 	groupKey := view.GetGroupKey(attrView)
 	if nil == groupKey {
 		if view.LayoutType == av.LayoutTypeKanban {
@@ -661,7 +672,8 @@ func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView,
 
 	var groups []av.Viewable
 	for _, groupView := range view.Groups {
-		groupViewable := sql.RenderGroupViewWithSource(attrView, view, groupView, query, groupRenderSource, ignoreRows)
+		groupViewable := sql.RenderGroupViewWithSourceContext(attrView, view, groupView, query, groupRenderSource,
+			ignoreRows, renderContext)
 
 		groupPage, groupPageSize := page, pageSize
 		if nil != groupPaging {
@@ -682,7 +694,8 @@ func renderAttributeViewGroups(viewable av.Viewable, attrView *av.AttributeView,
 				groupTargetItemID = target.ItemID
 			}
 		}
-		targetIndex, targetOffset, renderErr := renderViewableInstance(groupViewable, view, attrView, groupPage, groupPageSize, ignoreRows, groupTargetItemID)
+		targetIndex, targetOffset, renderErr := renderViewableInstance(groupViewable, view, attrView, groupPage,
+			groupPageSize, ignoreRows, groupTargetItemID, renderContext)
 		err = renderErr
 		if nil != err {
 			return
@@ -905,7 +918,65 @@ func isGroupByTemplate(attrView *av.AttributeView, view *av.View) bool {
 	return av.KeyTypeTemplate == groupKey.Type
 }
 
-func renderViewableInstance(viewable av.Viewable, view *av.View, attrView *av.AttributeView, page, pageSize int, ignoreRows bool, targetItemID string) (targetIndex, targetOffset int, err error) {
+func shouldDeferAttributeViewTemplateValues(attrView *av.AttributeView, view *av.View, query string,
+	ignoreRows bool) bool {
+	if nil == attrView || nil == view || ignoreRows || "" != strings.TrimSpace(query) || view.IsGroupView() ||
+		av.LayoutTypeKanban == view.LayoutType {
+		return false
+	}
+
+	templateKeyIDs := map[string]bool{}
+	for _, keyValues := range attrView.KeyValues {
+		if nil != keyValues && nil != keyValues.Key && av.KeyTypeTemplate == keyValues.Key.Type {
+			templateKeyIDs[keyValues.Key.ID] = true
+		}
+	}
+	if 0 == len(templateKeyIDs) {
+		return false
+	}
+
+	for keyID := range templateKeyIDs {
+		if attrViewFiltersContainColumn(view.Filters, keyID) {
+			return false
+		}
+	}
+	for _, viewSort := range view.Sorts {
+		if nil != viewSort && templateKeyIDs[viewSort.Column] {
+			return false
+		}
+	}
+	if nil != view.GroupCalc && templateKeyIDs[view.GroupCalc.Field] {
+		return false
+	}
+
+	hasTemplateField := false
+	checkField := func(fieldID string, calc *av.FieldCalc) bool {
+		if !templateKeyIDs[fieldID] {
+			return false
+		}
+		hasTemplateField = true
+		return nil != calc && av.CalcOperatorNone != calc.Operator
+	}
+	switch view.LayoutType {
+	case av.LayoutTypeTable:
+		for _, column := range view.Table.Columns {
+			if nil != column && nil != column.BaseField && checkField(column.ID, column.Calc) {
+				return false
+			}
+		}
+	case av.LayoutTypeGallery:
+		for _, field := range view.Gallery.CardFields {
+			if nil != field && nil != field.BaseField && checkField(field.ID, field.Calc) {
+				return false
+			}
+		}
+	}
+	return hasTemplateField
+}
+
+func renderViewableInstance(viewable av.Viewable, view *av.View, attrView *av.AttributeView, page, pageSize int,
+	ignoreRows bool, targetItemID string,
+	renderContext *sql.AttributeViewRenderContext) (targetIndex, targetOffset int, err error) {
 	targetIndex = -1
 	if nil == viewable {
 		err = av.ErrViewNotFound
@@ -919,7 +990,7 @@ func renderViewableInstance(viewable av.Viewable, view *av.View, attrView *av.At
 	}
 
 	cachedAttrViews := map[string]*av.AttributeView{}
-	rollupFurtherCollections := sql.GetFurtherCollections(attrView, cachedAttrViews)
+	rollupFurtherCollections := sql.GetFurtherCollectionsWithContext(attrView, cachedAttrViews, renderContext)
 	av.Filter(viewable, attrView, rollupFurtherCollections, cachedAttrViews)
 	av.Sort(viewable, attrView)
 	av.Calc(viewable, attrView)

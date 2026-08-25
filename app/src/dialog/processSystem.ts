@@ -16,10 +16,9 @@ import {confirmDialog} from "./confirmDialog";
 import {escapeHtml} from "../util/escape";
 import {needSubscribe} from "../util/needSubscribe";
 import {hideAllElements} from "../protyle/ui/hideElements";
-import type {App} from "../index";
 import {saveScroll} from "../protyle/scroll/saveScroll";
 import {isInAndroid, isInHarmony, isInIOS, setStorageVal} from "../protyle/util/compatibility";
-import {Plugin} from "../plugin";
+import {emitToPlugins} from "../plugin/EventBusCore";
 
 export const processBacklinkIndexCommit = (data: {
     rootIDs?: string[],
@@ -121,13 +120,11 @@ export const setDefRefCount = (data: {
     }
 };
 
-export const lockScreen = async (app: App) => {
+export const lockScreen = async () => {
     if (window.siyuan.config.readonly || window.siyuan.isPublish) {
         return;
     }
-    app.plugins.forEach(item => {
-        item.eventBus.emit("lock-screen");
-    });
+    emitToPlugins("lock-screen");
     /// #if !MOBILE
     exportLayout({
         errorExit: false,
@@ -454,7 +451,7 @@ export const downloadProgress = (data: { id: string, percent: number }) => {
     }
 };
 
-export const processSync = (data?: IWebSocketData, plugins?: Plugin[]) => {
+export const processSync = (data?: IWebSocketData) => {
     if (data?.code === 1) {
         window.dispatchEvent(new CustomEvent("siyuan-sync-success"));
     }
@@ -513,13 +510,11 @@ export const processSync = (data?: IWebSocketData, plugins?: Plugin[]) => {
         useElement.setAttribute("xlink:href", syncDisabled ? "#iconCloudOff" : "#iconCloudSucc");
     }
     /// #endif
-    plugins.forEach((item) => {
-        if (data.code === 0) {
-            item.eventBus.emit("sync-start", data);
-        } else if (data.code === 1) {
-            item.eventBus.emit("sync-end", data);
-        } else if (data.code === 2) {
-            item.eventBus.emit("sync-fail", data);
-        }
-    });
+    if (data.code === 0) {
+        emitToPlugins("sync-start", data);
+    } else if (data.code === 1) {
+        emitToPlugins("sync-end", data);
+    } else if (data.code === 2) {
+        emitToPlugins("sync-fail", data);
+    }
 };
